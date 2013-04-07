@@ -11,6 +11,8 @@ cd              help            ntrans          reset           ?
 cdup            lcd             open            rmdir
 close           ls              prompt          runique
 
+Commands to implement-
+
 cd - CWD
 cdup - CDUP
 close - 
