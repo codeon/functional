@@ -5,7 +5,6 @@ import Network
 import System.IO
 import Data.Text
 
-
 listenPort :: PortID
 listenPort = PortNumber 10000
 
