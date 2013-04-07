@@ -1,12 +1,14 @@
 import Control.Concurrent
-import Control.Exception
+{-import qualified Control.Exception-} 
+import Control.Exception 
 import Control.Monad
 import Network
 import System.IO
 import Data.Text
+{-import System.IO.Error-}
 
 listenPort :: PortID
-listenPort = PortNumber 10000
+listenPort = PortNumber 10020
 
 main :: IO ()
 main = do sock <- listenOn listenPort
@@ -42,10 +44,11 @@ parse dataRecv hand = case unpack $ strip $ pack dataRecv of
 	_ -> do { printHere dataRecv ; sendData hand "SAmajh nahin aaya"}
 
 handle_get :: String -> Handle -> IO ()
-handle_get filename hand = do 
-	x <- openFile filename ReadMode
-	y <- hGetContents x 
-	sendData hand y
+handle_get filename hand = 
+	do x <- try $ openFile filename ReadMode
+	   case x of
+		Left er -> sendData hand (show (er::IOException))
+		Right x -> hGetContents x >>= sendData hand 
 
 worker :: (Handle, HostName, PortNumber) ->  IO ()
 worker (hand, host, port)  = do
