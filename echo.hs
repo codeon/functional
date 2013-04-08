@@ -43,16 +43,19 @@ parse dataRecv hand = case unpack $ strip $ pack dataRecv of
 	"get" -> do { x<- rcvData hand ; handle_get (unpack $ strip $ pack x) hand} 
 	_ -> do { printHere dataRecv ; sendData hand "SAmajh nahin aaya"}
 
+-- Need to add `finally` to close the opened file handle in handle_get
 handle_get :: String -> Handle -> IO ()
 handle_get filename hand = 
 	do x <- try $ openFile filename ReadMode
 	   case x of
 		Left er -> sendData hand (show (er::IOException))
 		Right x -> hGetContents x >>= sendData hand 
+		
 
 worker :: (Handle, HostName, PortNumber) ->  IO ()
 worker (hand, host, port)  = do
   tID <- myThreadId
   putStrLn $ show tID ++ " <- " ++ host ++ ":" ++ show port
   hSetBuffering hand LineBuffering
+  sendData hand "220 Welcome to FTP Server."
   ftpHandler hand `finally` do {hClose hand ; putStrLn $ "done " ++ host ++ ":" ++ show port}
