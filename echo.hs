@@ -4,7 +4,7 @@ import Control.Exception
 import Control.Monad
 import Network
 import System.IO
-import Data.Text
+import Data.Text hiding (map)
 {-import System.IO.Error-}
 
 data ConnMode = NoChannel
@@ -63,23 +63,36 @@ ftpHandler ftpState = do
 	parse x ftpState
 	ftpHandler ftpState
 
+isdelm :: Char -> Bool
+isdelm ' ' = True
+isdelm  _ = False 
+
 parse :: String -> FTPState ->  IO ()
-parse dataRecv ftpState = case unpack $ strip $ pack dataRecv of
-	"cwd" -> sendData (cmdsocket ftpState) "Current Directory"
-	"pwd" -> sendData (cmdsocket ftpState) "Present Directory"
-	"get" -> do { x<- rcvData (cmdsocket ftpState) ; handle_get (unpack $ strip $ pack x) ftpState} 
-	"USER anonymous" -> sendData (cmdsocket ftpState) "331 Password?"
-	"PASS" -> sendData (cmdsocket ftpState) "230 Login Successful !"
-	_ -> do { printHere dataRecv ; sendData (cmdsocket ftpState) "SAmajh nahin aaya"}
+parse dataRecv ftpState = do
+	printHere dataRecv
+	let cmd:args = map unpack $ split isdelm $ strip $ pack dataRecv
+	case cmd of
+		"CWD" -> sendData (cmdsocket ftpState) "Current Directory"
+		"PWD" -> sendData (cmdsocket ftpState) "Present Directory"
+		"GET" -> do { x<- rcvData (cmdsocket ftpState) ; handle_get (unpack $ strip $ pack x) ftpState} 
+		"USER" -> sendData (cmdsocket ftpState) "331 Password?"
+		"PORT" -> do {handle_PORT ftpState args}
+		"PASS" -> sendData (cmdsocket ftpState) "230 Login Successful !"
+		_ -> do { printHere dataRecv ; sendData (cmdsocket ftpState) "SAmajh nahin aaya"}
+
+handle_PORT :: FTPState -> [String] -> IO ()
+handle_PORT ftpState args = do
+	sendData (cmdsocket ftpState) "Handling PORT Command"
+
 
 -- Need to add `finally` to close the opened file handle in handle_get
 handle_get :: String -> FTPState -> IO ()
-handle_get filename ftpState = 
-	do x <- try $ openFile filename ReadMode
-	   case x of
+handle_get filename ftpState = do
+	x <- try $ openFile filename ReadMode
+	case x of
 		Left er -> sendData (cmdsocket ftpState) (show (er::IOException))
 		Right x -> hGetContents x >>= sendData (cmdsocket ftpState) -- this would need to be changed to datasocket once we figure out how to get the datasocket. 
-		
+			
 
 worker :: (Handle, HostName, PortNumber) ->  IO ()
 worker (hand, host, port)  = do
