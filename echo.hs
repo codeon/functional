@@ -41,6 +41,8 @@ parse dataRecv hand = case unpack $ strip $ pack dataRecv of
 	"cwd" -> sendData hand "Current Directory"
 	"pwd" -> sendData hand "Present Directory"
 	"get" -> do { x<- rcvData hand ; handle_get (unpack $ strip $ pack x) hand} 
+	"USER anonymous" -> sendData hand "331 Password?"
+	"PASS" -> sendData hand "230 Login Successful !"
 	_ -> do { printHere dataRecv ; sendData hand "SAmajh nahin aaya"}
 
 -- Need to add `finally` to close the opened file handle in handle_get
