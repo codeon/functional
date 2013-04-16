@@ -1,10 +1,12 @@
+import System.Process
+import System.Directory
 import Control.Concurrent
 {-import qualified Control.Exception-} 
 import Control.Exception 
 import Control.Monad
 import Network
 import System.IO
-import Data.Text hiding (map)
+import Data.Text hiding (map, concat)
 import Network.Socket hiding (accept)
 import Network.BSD (getProtocolNumber)
 {-import System.IO.Error-}
@@ -24,7 +26,8 @@ data FTPState = FTPState
                 datasocket :: Socket, -- socket for sending receiving file data
                 cmdsocket :: Handle, -- Handle for sending receiving cmd data
                 datahandle :: Handle, -- Handle for sending receiving file data
-                curr_directory :: String -- Store the current directory
+                curr_directory :: IO FilePath, -- Store the current directory
+                renamefile :: FilePath
                 } 
                 
 initDefaultFTPState :: Handle  -> Socket ->FTPState
@@ -35,7 +38,8 @@ initDefaultFTPState cmdHandle sock = FTPState
 								cmdsocket = cmdHandle,
 								datahandle = cmdHandle,
 								datasocket = sock,
-								curr_directory = "./"
+								curr_directory = getCurrentDirectory,
+								renamefile = ""
 								}
 
 listenPort :: PortID
@@ -44,11 +48,13 @@ dataPort :: PortID
 dataPort = PortNumber 10021
 
 main :: IO ()
-main = do sock <- listenOn listenPort
-          acceptLoop sock `finally` sClose sock
+main = do 
+		sock <- listenOn listenPort
+		sock2 <- listenOn dataPort
+		acceptLoop sock sock2 `finally` sClose sock
 
-acceptLoop :: Socket -> IO ()
-acceptLoop sock = forever $ accept sock >>= forkIO . worker
+acceptLoop :: Socket -> Socket -> IO ()
+acceptLoop sock sock2 = forever $ accept sock >>= forkIO . (worker sock2)
 
 printHere :: String -> IO ()
 printHere mesg = do
@@ -90,7 +96,7 @@ parse dataRecv ftpState = do
 					handle_get x ftpState 
 					--sendData (datahandle ftpState) "150 send by data?"
 					hClose (datahandle ftpState)
-					sClose (datasocket ftpState)
+					--sClose (datasocket ftpState)
 					sendData (cmdsocket ftpState) "226 Transfer Comp"
 					return ftpState			
 				where x:xs = args		
@@ -100,11 +106,9 @@ parse dataRecv ftpState = do
 		"LIST" -> do 
 					sendData (cmdsocket ftpState) "150 send by cmd?"
 					printHere $ show $ datahandle ftpState
-					handle_get "echo.hs" ftpState 
-					--sendData (datahandle ftpState) "150 send by data?"
+					handle_ls ftpState 
 					hClose (datahandle ftpState)
-					sClose (datasocket ftpState)
-					sendData (cmdsocket ftpState) "226 Transfer Comp"
+					sendData (cmdsocket ftpState) "226 Directory Send OK"
 					return ftpState					
 --		"PORT" -> do {handle_PORT ftpState args}
 --				 ftpState
@@ -113,6 +117,42 @@ parse dataRecv ftpState = do
 		"PASS" -> do
 					sendData (cmdsocket ftpState) "230 Login Successful !"
 					return ftpState
+		"STOR" -> do
+					sendData (cmdsocket ftpState) "150 send me file"
+					printHere $ show $ datahandle ftpState
+					handle_put x ftpState 
+					--sendData (datahandle ftpState) "150 send by data?"
+					hClose (datahandle ftpState)
+					--sClose (datasocket ftpState)
+					sendData (cmdsocket ftpState) "226 Transfer Comp"
+					return ftpState			
+				where x:xs = args		
+		"DELE" -> do
+				    --sendData (cmdsocket ftpState) "150 send me file to delete"
+				  --printHere $ show $ datahandle ftpState
+				    handle_del x ftpState 
+					--sendData (datahandle ftpState) "150 send by data?"
+				    --hClose (datahandle ftpState)
+					--sClose (datasocket ftpState)
+				    sendData (cmdsocket ftpState) "250 File deleted"
+				    return ftpState			
+				where x:xs = args
+		"RNFR" -> do
+					--return $ ftpState {renamefile = x} 
+					sendData (cmdsocket ftpState) "350 Ready for RNTO"
+					--printHere $ show $ renamefile ftpState
+					return $ ftpState {renamefile = x}
+				where x:xs = args
+		"RNTO" -> do
+					--sendData (cmdsocket ftpState) "150 send me file to rename"
+					printHere $ show $ renamefile ftpState
+					handle_rename x ftpState 
+					--sendData (datahandle ftpState) "150 send by data?"
+					--hClose (datahandle ftpState)
+					--sClose (datasocket ftpState)
+					--sendData (cmdsocket ftpState) "250 Rename Successful"
+					return ftpState			
+				where x:xs = args
 		"PASV" -> handle_PASV ftpState
 		"EPSV" -> handle_PASV ftpState
 		_ -> do { printHere dataRecv ; sendData (cmdsocket ftpState) "SAmajh nahin aaya" ; return ftpState}
@@ -120,15 +160,44 @@ parse dataRecv ftpState = do
 
 handle_PASV :: FTPState -> IO FTPState
 handle_PASV ftpState= do 
-	sock <- listenOn dataPort
-	sendData (cmdsocket ftpState) "227 Enteng Passive Mode (172,27,19,56,39,37)."
-	(hand, host, port ) <- accept sock
+	--sock <- listenOn dataPort
+	sendData (cmdsocket ftpState) "227 Entering Passive Mode (172,27,22,34,39,37)."
+	(hand, host, port ) <- accept (datasocket ftpState)
 	printHere $ show hand ++ ":" ++ show host ++ ":" ++ show port
-	return $ ftpState {datahandle = hand , datasocket = sock}
+	return $ ftpState {datahandle = hand }
 
 handle_PORT :: FTPState -> [String] -> IO ()
 handle_PORT ftpState args = do
 	sendData (cmdsocket ftpState) "Handling PORT Command"
+
+handle_ls :: FTPState -> IO ()
+handle_ls ftpState = do
+	path <- (curr_directory ftpState)
+	(a, b, c, d) <- runInteractiveCommand $ "ls -l "++ (show path)
+	hGetContents b >>= sendData (datahandle ftpState)
+
+-- Need to add `finally` to close the opened file handle in handle_get
+handle_rename :: String -> FTPState -> IO ()
+handle_rename filename ftpState = do
+	x <- doesFileExist (renamefile ftpState)
+	case x of
+		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
+		True -> do
+				renameFile (renamefile ftpState) filename
+				return ()---------------Check kar lena!!!
+				sendData (cmdsocket ftpState) (show "250 rename successful")
+			
+
+-- Need to add `finally` to close the opened file handle in handle_get
+handle_del :: String -> FTPState -> IO ()
+handle_del filename ftpState = do
+	x <- doesFileExist filename
+	case x of
+		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
+		True -> do
+				removeFile filename
+				return ()---------------Check kar lena!!!
+			
 
 
 -- Need to add `finally` to close the opened file handle in handle_get
@@ -139,14 +208,20 @@ handle_get filename ftpState = do
 		Left er -> sendData (datahandle ftpState) (show (er::IOException))
 		Right x -> hGetContents x >>= sendData (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
 			
+handle_put :: String -> FTPState -> IO ()
+handle_put filename ftpState = do
+	x <- try $ openFile filename WriteMode
+	case x of
+		Left er -> sendData (datahandle ftpState) (show (er::IOException))
+		Right x -> hGetContents (datahandle ftpState) >>= sendData x -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
 
-worker :: (Handle, HostName, PortNumber) ->  IO ()
-worker (hand, host, port)  = do
+worker :: Socket -> (Handle, HostName, PortNumber) ->  IO ()
+worker sock2 (hand, host, port) = do
   tID <- myThreadId
   putStrLn $ show tID ++ " <- " ++ host ++ ":" ++ show port
   hSetBuffering hand LineBuffering
   sendData hand "220 Welcome to FTP Server."
-  proto <- getProtocolNumber "tcp"
-  sock <- socket AF_INET Stream proto
-  let ftpState = initDefaultFTPState hand sock  in
+  --proto <- getProtocolNumber "tcp"
+  --sock <- socket AF_INET Stream proto
+  let ftpState = initDefaultFTPState hand sock2 in
 	ftpHandler ftpState `finally` do {hClose hand ; putStrLn $ "done " ++ host ++ ":" ++ show port}
