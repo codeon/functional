@@ -1,3 +1,4 @@
+import Data.List.Split
 import System.Process
 import System.Directory
 import Control.Concurrent
@@ -82,7 +83,7 @@ isdelm  _ = False
 parse :: String -> FTPState ->  IO FTPState
 parse dataRecv ftpState = do
 	printHere dataRecv
-	let cmd:args = map unpack $ split isdelm $ strip $ pack dataRecv -- splitting the commands received on ' ' . The first word of recvData is the command and rest are arguments.
+	let cmd:args = map unpack $ Data.Text.split isdelm $ strip $ pack dataRecv -- splitting the commands received on ' ' . The first word of recvData is the command and rest are arguments.
 	case cmd of
 		"RETR" -> do 
 					sendData (cmdsocket ftpState) "150 send by cmd?"
@@ -158,7 +159,7 @@ parse dataRecv ftpState = do
 		"PWD" -> do
 					dir <- (curr_directory ftpState)
 					sendData (cmdsocket ftpState) $ show dir
-					return ftpState
+					return ftpState --{curr_directory = return $ cleanPath dir}
 		"CWD" -> do
 					ftpState <- handle_cd x ftpState
 					newDir <- (curr_directory ftpState)
@@ -175,8 +176,8 @@ parse dataRecv ftpState = do
 		"EPSV" -> handle_PASV ftpState
 		"SYST" -> do
 					printHere dataRecv
-					--sendData (cmdsocket ftpState) "215 UNIX Type: L8\nRemote system type is UNIX.\nUsing binary mode to transfer files."
-					sendData (cmdsocket ftpState) "Kuch"
+					sendData (cmdsocket ftpState) "215 UNIX Type: L8"
+					--sendData (cmdsocket ftpState) "Kuch"
 					return ftpState
 		_ -> do { printHere dataRecv ; sendData (cmdsocket ftpState) "SAmajh nahin aaya" ; return ftpState}
 --		_ -> retunr ftpState
@@ -193,6 +194,13 @@ handle_PORT :: FTPState -> [String] -> IO ()
 handle_PORT ftpState args = do
 	sendData (cmdsocket ftpState) "Handling PORT Command"
 
+
+--cleanPath :: String -> String
+--cleanPath currentDirectory = 
+--		list = splitOn "/" currentDirectory
+
+--auxCleanPath list returnValue		
+					
 
 getPath :: String -> String -> String
 getPath currentDirectory filePath = do
