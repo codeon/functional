@@ -1,3 +1,4 @@
+import System.Process
 import System.Directory
 import Control.Concurrent
 {-import qualified Control.Exception-} 
@@ -5,7 +6,7 @@ import Control.Exception
 import Control.Monad
 import Network
 import System.IO
-import Data.Text hiding (map)
+import Data.Text hiding (map, concat)
 import Network.Socket hiding (accept)
 import Network.BSD (getProtocolNumber)
 {-import System.IO.Error-}
@@ -83,12 +84,6 @@ parse dataRecv ftpState = do
 	printHere dataRecv
 	let cmd:args = map unpack $ split isdelm $ strip $ pack dataRecv -- splitting the commands received on ' ' . The first word of recvData is the command and rest are arguments.
 	case cmd of
-		"CWD" -> do 
-					sendData (cmdsocket ftpState) "Current Directory" 
-					return ftpState
-		"PWD" -> do
-					sendData (cmdsocket ftpState) "Present Directory"
-					return ftpState
 		"RETR" -> do 
 					sendData (cmdsocket ftpState) "150 send by cmd?"
 					printHere $ show $ datahandle ftpState
@@ -152,8 +147,37 @@ parse dataRecv ftpState = do
 					--sendData (cmdsocket ftpState) "250 Rename Successful"
 					return ftpState			
 				where x:xs = args
+		"MKD" -> do
+					handle_mkdir x ftpState
+					return ftpState
+				where x:xs = args
+		"RMD" -> do
+					handle_rmdir x ftpState
+					return ftpState
+				where x:xs = args
+		"PWD" -> do
+					dir <- (curr_directory ftpState)
+					sendData (cmdsocket ftpState) $ show dir
+					return ftpState
+		"CWD" -> do
+					ftpState <- handle_cd x ftpState
+					newDir <- (curr_directory ftpState)
+					printHere newDir
+					return ftpState
+				where x:xs = args
+		"CDUP" -> do
+					ftpState <- handle_cd "../" ftpState
+					newDir <- (curr_directory ftpState)
+					printHere newDir
+					return ftpState				
+					
 		"PASV" -> handle_PASV ftpState
 		"EPSV" -> handle_PASV ftpState
+		"SYST" -> do
+					printHere dataRecv
+					--sendData (cmdsocket ftpState) "215 UNIX Type: L8\nRemote system type is UNIX.\nUsing binary mode to transfer files."
+					sendData (cmdsocket ftpState) "Kuch"
+					return ftpState
 		_ -> do { printHere dataRecv ; sendData (cmdsocket ftpState) "SAmajh nahin aaya" ; return ftpState}
 --		_ -> retunr ftpState
 
@@ -169,49 +193,133 @@ handle_PORT :: FTPState -> [String] -> IO ()
 handle_PORT ftpState args = do
 	sendData (cmdsocket ftpState) "Handling PORT Command"
 
+
+getPath :: String -> String -> String
+getPath currentDirectory filePath = do
+					case x of
+						'/' ->	filePath
+						_ ->  currentDirectory ++ "/" ++ filePath
+			where 
+				x:xs = filePath
+
+handle_cd :: String -> FTPState -> IO FTPState
+handle_cd directoryName ftpState = do
+					y <- curr_directory ftpState
+					case x of
+						'/' -> do 
+								return ()
+								isExist <- doesDirectoryExist newDir
+								case isExist of
+									False -> do
+												sendData (cmdsocket ftpState) "550 Directory Doesn't Exists!!!"
+												return ftpState
+									True -> do
+												--setCurrentDirectory newDir
+												--return $ ftpState {curr_directory = return newDir}
+												printHere newDir
+												return ()---------------Check kar lena!!!
+												sendData (cmdsocket ftpState) "250 Directory Changed"
+												return ftpState {curr_directory = return newDir}
+							where 
+								newDir = if (Prelude.last directoryName == '/') then (Prelude.init directoryName) else directoryName
+						_ -> do 
+								return()
+								isExist <- doesDirectoryExist newDir
+								case isExist of
+									False -> do
+												sendData (cmdsocket ftpState) "550 Directory Doesn't Exists!!!"
+												return ftpState
+									True -> do
+												--setCurrentDirectory newDir
+												--return $ ftpState {curr_directory = return newDir}
+												printHere newDir
+												return ()---------------Check kar lena!!!
+												sendData (cmdsocket ftpState) "250 Directory Changed"
+												return ftpState {curr_directory = return newDir}
+							where 
+								newDir = if (Prelude.last directoryName == '/') then y ++ "/" ++ (Prelude.init directoryName) else y ++ "/" ++ directoryName
+			where 
+				x:xs = directoryName
+
+
+handle_rmdir :: String -> FTPState -> IO ()
+handle_rmdir directoryName ftpState = do
+	z <- (curr_directory ftpState)
+	newDir <- return $ getPath z directoryName
+	x <- doesDirectoryExist $ newDir
+	case x of
+		False -> sendData (cmdsocket ftpState) "Directory Doesn't Exists!!!"
+		True -> do
+				y <- try $ removeDirectory $ newDir
+				case y of
+					Right y -> do
+								return ()---------------Check kar lena!!!
+								sendData (cmdsocket ftpState) "250 Directory Removed"
+					Left er -> sendData (cmdsocket ftpState) (show (er::IOException))
+
+
+handle_mkdir :: String -> FTPState -> IO ()
+handle_mkdir directoryName ftpState = do
+		z <- (curr_directory ftpState)
+		newDir <- return $ getPath z directoryName
+		x <- doesDirectoryExist $ newDir
+		case x of
+			True -> sendData (cmdsocket ftpState) "Directory Exists!!!"
+			False -> do
+				createDirectory $ newDir
+				return ()---------------Check kar lena!!!
+				sendData (cmdsocket ftpState) "250 Directory Created"
+
+
 handle_ls :: FTPState -> IO ()
 handle_ls ftpState = do
-	y <- curr_directory ftpState
-	x <- try $ getDirectoryContents y
-	case x of
-		Left er -> sendData (datahandle ftpState) (show (er::IOException))
-		Right x -> return (show x) >>= sendData (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
+	path <- (curr_directory ftpState)
+	(a, b, c, d) <- runInteractiveCommand $ "ls -l "++ (show path)
+	hGetContents b >>= sendData (datahandle ftpState)
 
 
--- Need to add `finally` to close the opened file handle in handle_get
 handle_rename :: String -> FTPState -> IO ()
 handle_rename filename ftpState = do
-	x <- doesFileExist (renamefile ftpState)
+	dir <- (curr_directory ftpState)
+	fileN <- return (renamefile ftpState)
+	oldRenFile <- return $ getPath dir fileN
+   	newRenFile <- return $ getPath dir filename
+	x <- doesFileExist oldRenFile
 	case x of
 		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
 		True -> do
-				renameFile (renamefile ftpState) filename
+				renameFile oldRenFile newRenFile
 				return ()---------------Check kar lena!!!
 				sendData (cmdsocket ftpState) (show "250 rename successful")
 			
 
--- Need to add `finally` to close the opened file handle in handle_get
 handle_del :: String -> FTPState -> IO ()
 handle_del filename ftpState = do
-	x <- doesFileExist filename
+	dir <- (curr_directory ftpState)
+	fileN <- return $ getPath dir filename
+	x <- doesFileExist fileN
 	case x of
 		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
 		True -> do
-				removeFile filename
+				removeFile fileN
 				return ()---------------Check kar lena!!!
 			
 
 
 -- Need to add `finally` to close the opened file handle in handle_get
 handle_get :: String -> FTPState -> IO ()
-handle_get filename ftpState = do
+handle_get fileN ftpState = do
+	dir <- (curr_directory ftpState)
+	filename <- return $ getPath dir fileN
 	x <- try $ openFile filename ReadMode
 	case x of
 		Left er -> sendData (datahandle ftpState) (show (er::IOException))
 		Right x -> hGetContents x >>= sendData (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
 			
 handle_put :: String -> FTPState -> IO ()
-handle_put filename ftpState = do
+handle_put fileN ftpState = do
+	dir <- (curr_directory ftpState)
+	filename <- return $ getPath dir fileN
 	x <- try $ openFile filename WriteMode
 	case x of
 		Left er -> sendData (datahandle ftpState) (show (er::IOException))
