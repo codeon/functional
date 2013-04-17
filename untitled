@@ -1,0 +1,30 @@
+!               cr              macdef          proxy           send
+$               delete          mdelete         sendport        status
+account         debug           mdir            put             struct
+append          dir             mget            pwd             sunique
+ascii           disconnect      mkdir           quit            tenex
+bell            form            mls             quote           trace
+binary          get             mode            recv            type
+bye             glob            mput            remotehelp      user
+case            hash            nmap            rename          verbose
+cd              help            ntrans          reset           ?
+cdup            lcd             open            rmdir
+close           ls              prompt          runique
+
+Commands to implement-
+
+cd - CWD
+cdup - CDUP
+close - 
+open
+ascii - TYPE A
+ls - PORT .... , LIST
+binary - TYPE I
+mkdir - MKD aa
+bye - 
+delete - DELE 
+get - TYPE, PORT ,  RETR
+rmdir - RMD 
+put - PORT, STOR
+pwd - PWD
+rename - RNFR 
