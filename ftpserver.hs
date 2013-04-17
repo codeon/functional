@@ -33,7 +33,8 @@ data FTPState = FTPState
                 datahandle :: Handle, -- Handle for sending receiving file data
                 curr_directory :: IO FilePath, -- Store the current directory
                 renamefile :: FilePath,
-                hostip :: String
+                hostip :: String, 
+                isOpen :: Bool
                 } 
                 
 initDefaultFTPState :: Handle  -> Socket -> String -> FTPState
@@ -46,7 +47,8 @@ initDefaultFTPState cmdHandle sock ip = FTPState
 								datasocket = sock,
 								curr_directory = getCurrentDirectory,
 								renamefile = "",
-								hostip = ip
+								hostip = ip,
+								isOpen = True
 								}
 
 listenPort :: PortID
@@ -84,7 +86,9 @@ ftpHandler :: FTPState -> IO()
 ftpHandler ftpState = do
 	x <- rcvData (cmdsocket ftpState) -- This line needs to be changed, should use cmdsocket from ftpState instead of directly using hand.
 	y <- parse x ftpState
-	ftpHandler $ y
+	z <- return (isOpen ftpState)
+	if z then ftpHandler $ y else return ()
+
 
 isdelm :: Char -> Bool
 isdelm ' ' = True
@@ -95,6 +99,7 @@ isdelmip '.' = True
 isdelmip ':' = True
 isdelmip ',' = True
 isdelmip _ = False 
+
 
 parse :: String -> FTPState ->  IO FTPState
 parse dataRecv ftpState = do
@@ -175,8 +180,8 @@ parse dataRecv ftpState = do
 				where x:xs = args
 		"PWD" -> do
 					dir <- (curr_directory ftpState)
-					sendData (cmdsocket ftpState) $ show dir
-					return ftpState --{curr_directory = return $ cleanPath dir}
+					sendData (cmdsocket ftpState) $ show $ cleanPath dir
+					return ftpState {curr_directory = return $ cleanPath dir}
 		"CWD" -> do
 					ftpState <- handle_cd x ftpState
 					newDir <- (curr_directory ftpState)
@@ -195,7 +200,7 @@ parse dataRecv ftpState = do
 					return ftpState
 		"QUIT" -> do
 					sendData (cmdsocket ftpState) "221 Goodbye."
-					return ftpState
+					return ftpState {isOpen = False}
 		"SYST" -> do
 					sendData (cmdsocket ftpState) "215 UNIX Type: L8"
 					--sendData (cmdsocket ftpState) "215 UNIX Type: L8"
@@ -250,6 +255,25 @@ handle_EPRT ftpState args = do
 		ip = "127.0.0.1"
 		port = PortNum (read $ last y)
 
+cleanPath :: String -> String
+cleanPath currentDirectory = 
+		concat $ map alpha returnDir
+		where returnDir = auxCleanPath (Data.List.Split.splitOn "/" currentDirectory) []
+
+	
+alpha :: String -> String
+alpha "" = ""
+alpha a = "/" ++ a
+
+
+auxCleanPath :: [String] -> [String] -> [String]
+auxCleanPath list returnValue = 
+			case list of 
+				(x:xs) -> case x of
+								"." -> auxCleanPath xs returnValue
+								".." -> auxCleanPath xs $ Prelude.init returnValue
+								_ -> auxCleanPath xs $ returnValue ++ [x]
+				[] -> returnValue
 
 getPath :: String -> String -> String
 getPath currentDirectory filePath = do
