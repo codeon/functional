@@ -1,3 +1,5 @@
+module Main where
+
 import qualified Data.List.Split
 import System.Process
 import System.Directory
@@ -16,14 +18,16 @@ import Data.Word
 import qualified Data.ByteString
 import qualified Data.ByteString.Char8
 
+-- | Connection mode
 data ConnMode = NoChannel
 			  |	Active
 			  | Passive
 			  deriving (Show, Eq)
+-- | Data mode
 data DataMode = ASCII
 			  | BINARY
 			  deriving (Show, Eq)
-
+-- | Record for storing connection attributes
 data FTPState = FTPState
               { logged_in :: Bool, -- check auth status
                 datatype :: DataMode, -- ASCII/BINARY
@@ -36,7 +40,7 @@ data FTPState = FTPState
                 hostip :: String, 
                 isOpen :: Bool
                 } 
-                
+-- | Function to initialize ftp state
 initDefaultFTPState :: Handle  -> Socket -> String -> FTPState
 initDefaultFTPState cmdHandle sock ip = FTPState
 							  { logged_in = False,
@@ -48,11 +52,12 @@ initDefaultFTPState cmdHandle sock ip = FTPState
 								curr_directory = getCurrentDirectory,
 								renamefile = "",
 								hostip = ip,
-								isOpen = True
-								}
+								isOpen = True					}
+-- | Gets current directory on the server side
 servercurr_dir :: IO FilePath
 servercurr_dir = getCurrentDirectory
 
+-- | Ports for connection defined
 listenPort :: PortID
 listenPort = PortNumber 10024
 dataPort :: PortID
@@ -64,26 +69,32 @@ main = do
 		datasock <- listenOn dataPort
 		acceptLoop cmdsock datasock `finally` sClose cmdsock
 
+-- | Listens for incoming connections 
 acceptLoop :: Socket -> Socket -> IO ()
 acceptLoop cmdsock datasock = forever $ accept cmdsock >>= forkIO . (worker datasock)
 
+-- | Prints string on server side
 printHere :: String -> IO ()
 printHere mesg = do
 	putStrLn mesg
 
+-- | Sends data on handle
 sendData :: Handle -> String -> IO ()
 sendData hand toBeSend = do
 	hPutStrLn hand toBeSend
 
+-- | Sends binary data on handle
 sendDataB :: Handle -> String -> IO ()
 sendDataB hand toBeSend = do
 	Data.ByteString.hPutStr hand $ Data.ByteString.Char8.pack toBeSend
 
+-- | Receives data from handle
 rcvData :: Handle -> IO String
 rcvData hand = do
 	dataRecv <- (hGetLine hand)
 	return dataRecv
 
+-- | Function for handling commands from the client
 ftpHandler :: FTPState -> IO()
 ftpHandler ftpState = do
 	x <- rcvData (cmdsocket ftpState) -- This line needs to be changed, should use cmdsocket from ftpState instead of directly using hand.
@@ -102,7 +113,7 @@ isdelmip ':' = True
 isdelmip ',' = True
 isdelmip _ = False 
 
-
+-- | Parses the received command and takes appropriate action
 parse :: String -> FTPState ->  IO FTPState
 parse dataRecv ftpState = do
 	printHere dataRecv
@@ -212,6 +223,7 @@ parse dataRecv ftpState = do
 		_ -> do { sendData (cmdsocket ftpState) "Invalid Command Recieved" ; return ftpState}
 --		_ -> retunr ftpState
 
+-- | Handles passive mode
 handle_PASV :: FTPState -> IO FTPState
 handle_PASV ftpState= do 
 	--sock <- listenOn dataPort
@@ -222,9 +234,11 @@ handle_PASV ftpState= do
 	--printHere $ show hand ++ ":" ++ show addr
 	return $ ftpState {datahandle = hand }
 
+-- | Generates port number from strings
 porty :: String -> String -> Word16
 porty x y = (read x) * 256 + (read y)
 
+-- | Handles active mode
 handle_PORT :: FTPState -> [String] -> IO FTPState
 handle_PORT ftpState args = do
 	--datasock <- socket AF_INET Stream defaultProtocol
@@ -257,17 +271,17 @@ handle_EPRT ftpState args = do
 		ip = "127.0.0.1"
 		port = PortNum (read $ last y)
 
+-- | Cleans file path
 cleanPath :: String -> String
 cleanPath currentDirectory = 
 		concat $ map alpha returnDir
 		where returnDir = auxCleanPath (Data.List.Split.splitOn "/" currentDirectory) []
 
-	
 alpha :: String -> String
 alpha "" = ""
 alpha a = "/" ++ a
 
-
+-- | Cleans file path
 auxCleanPath :: [String] -> [String] -> [String]
 auxCleanPath list returnValue = 
 			case list of 
@@ -284,7 +298,7 @@ getPath currentDirectory filePath = do
 						_ ->  currentDirectory ++ "/" ++ filePath
 			where 
 				x:xs = filePath
-
+-- | Handles CWD
 handle_cd :: String -> FTPState -> IO FTPState
 handle_cd directoryName ftpState = do
 					y <- curr_directory ftpState
@@ -337,7 +351,7 @@ handle_cd directoryName ftpState = do
 			where 
 				x:xs = directoryName
 
-
+-- | Handles delete directory
 handle_rmdir :: String -> FTPState -> IO ()
 handle_rmdir directoryName ftpState = do
 	z <- (curr_directory ftpState)
@@ -354,6 +368,7 @@ handle_rmdir directoryName ftpState = do
 					Left er -> sendData (cmdsocket ftpState) (show (er::IOException))
 
 
+-- | Handles directory creation
 handle_mkdir :: String -> FTPState -> IO ()
 handle_mkdir directoryName ftpState = do
 		z <- (curr_directory ftpState)
@@ -367,6 +382,7 @@ handle_mkdir directoryName ftpState = do
 				sendData (cmdsocket ftpState) "250 Directory Created"
 
 
+-- | Handles list command
 handle_ls :: FTPState -> IO ()
 handle_ls ftpState = do
 	path <- (curr_directory ftpState)
@@ -374,6 +390,7 @@ handle_ls ftpState = do
 	hGetContents b >>= sendDataB (datahandle ftpState)
 
 
+-- | Handles file renaming
 handle_rename :: String -> FTPState -> IO ()
 handle_rename filename ftpState = do
 	dir <- (curr_directory ftpState)
@@ -389,6 +406,7 @@ handle_rename filename ftpState = do
 				sendData (cmdsocket ftpState) (show "250 rename successful")
 			
 
+-- | Handles file deletion
 handle_del :: String -> FTPState -> IO ()
 handle_del filename ftpState = do
 	dir <- (curr_directory ftpState)
@@ -404,6 +422,7 @@ handle_del filename ftpState = do
 
 
 -- Need to add `finally` to close the opened file handle in handle_get
+-- | Handles GET
 handle_get :: String -> FTPState -> IO ()
 handle_get fileN ftpState = do
 	dir <- (curr_directory ftpState)
@@ -416,6 +435,8 @@ handle_get fileN ftpState = do
 					hGetContents x >>= sendDataB (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
 					sendData (cmdsocket ftpState) "226 Transfer Comp"
 			
+
+-- | Handles PUT
 handle_put :: String -> FTPState -> IO ()
 handle_put fileN ftpState = do
 	dir <- (curr_directory ftpState)
@@ -425,6 +446,7 @@ handle_put fileN ftpState = do
 		Left er -> sendDataB (datahandle ftpState) (show (er::IOException))
 		Right x -> hGetContents (datahandle ftpState) >>= sendDataB x -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
 
+-- | Main function for each thread. Initializes FTP handler
 worker :: Socket -> (Socket, SockAddr) ->  IO ()
 worker datasock (cmdsock, clientaddr) = do
   hand <- socketToHandle cmdsock ReadWriteMode
