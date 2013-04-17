@@ -1,0 +1,12 @@
+Name:                ftpserver
+Version:             0.0
+Description:         Super cool mega lambdas
+License:             GPL
+License-file:        LICENSE
+Author:              Kapil Garg
+Maintainer:          kapilg@iitk.ac.in
+Build-Type:          Simple
+Cabal-Version:       >=1.2
+Executable ftpserver
+  Main-is:           ftpserver.hs
+  Build-Depends:     base >= 3 && < 5,network,bytestring,network-info,text,split,directory,process
