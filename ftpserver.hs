@@ -107,13 +107,13 @@ parse dataRecv ftpState = do
 	let cmd:args = map unpack $ split isdelm $ strip $ pack dataRecv -- splitting the commands received on ' ' . The first word of recvData is the command and rest are arguments.
 	case cmd of
 		"RETR" -> do 
-					sendData (cmdsocket ftpState) "150 send by cmd?"
+					
 					--printHere $ show $ datahandle ftpState
 					handle_get x ftpState 
 					--sendData (datahandle ftpState) "150 send by data?"
 					hClose (datahandle ftpState)
 					--sClose (datasocket ftpState)
-					sendData (cmdsocket ftpState) "226 Transfer Comp"
+					
 					return ftpState			
 				where x:xs = args		
 		"USER" -> do
@@ -329,7 +329,7 @@ handle_rmdir directoryName ftpState = do
 	newDir <- return $ getPath z directoryName
 	x <- doesDirectoryExist $ newDir
 	case x of
-		False -> sendData (cmdsocket ftpState) "Directory Doesn't Exists!!!"
+		False -> sendData (cmdsocket ftpState) "550 Directory Doesn't Exists!!!"
 		True -> do
 				y <- try $ removeDirectory $ newDir
 				case y of
@@ -345,7 +345,7 @@ handle_mkdir directoryName ftpState = do
 		newDir <- return $ getPath z directoryName
 		x <- doesDirectoryExist $ newDir
 		case x of
-			True -> sendData (cmdsocket ftpState) "Directory Exists!!!"
+			True -> sendData (cmdsocket ftpState) "550 Directory Already Exists!!!"
 			False -> do
 				createDirectory $ newDir
 				return ()---------------Check kar lena!!!
@@ -367,7 +367,7 @@ handle_rename filename ftpState = do
    	newRenFile <- return $ getPath dir filename
 	x <- doesFileExist oldRenFile
 	case x of
-		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
+		False -> sendData (cmdsocket ftpState) (show "550 File doesnt Exist")
 		True -> do
 				renameFile oldRenFile newRenFile
 				return ()---------------Check kar lena!!!
@@ -380,7 +380,7 @@ handle_del filename ftpState = do
 	fileN <- return $ getPath dir filename
 	x <- doesFileExist fileN
 	case x of
-		False -> sendData (cmdsocket ftpState) (show "File doesnt Exist")
+		False -> sendData (cmdsocket ftpState) (show "550 File doesnt Exist")
 		True -> do
 				removeFile fileN
 				sendData (cmdsocket ftpState) "250 File deleted"
@@ -395,8 +395,11 @@ handle_get fileN ftpState = do
 	filename <- return $ getPath dir fileN
 	x <- try $ openFile filename ReadMode
 	case x of
-		Left er -> sendDataB (datahandle ftpState) (show (er::IOException))
-		Right x -> hGetContents x >>= sendDataB (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
+		Left er -> sendDataB (cmdsocket ftpState) $ "550 " ++ (show (er::IOException))
+		Right x -> do
+					sendData (cmdsocket ftpState) "150 send by cmd?"
+					hGetContents x >>= sendDataB (datahandle ftpState) -- this would need to be changed to datahandle once we figure out how to get the datahandle. 
+					sendData (cmdsocket ftpState) "226 Transfer Comp"
 			
 handle_put :: String -> FTPState -> IO ()
 handle_put fileN ftpState = do
