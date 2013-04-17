@@ -50,6 +50,8 @@ initDefaultFTPState cmdHandle sock ip = FTPState
 								hostip = ip,
 								isOpen = True
 								}
+servercurr_dir :: IO FilePath
+servercurr_dir = getCurrentDirectory
 
 listenPort :: PortID
 listenPort = PortNumber 10024
@@ -299,8 +301,14 @@ handle_cd directoryName ftpState = do
 												--return $ ftpState {curr_directory = return newDir}
 												printHere newDir
 												return ()---------------Check kar lena!!!
-												sendData (cmdsocket ftpState) "250 Directory Changed"
-												return ftpState {curr_directory = return newDir}
+												dirr <- servercurr_dir
+												case isPrefixOf (pack dirr) (pack (cleanPath newDir)) of
+													True -> do 
+														sendData (cmdsocket ftpState) "250 Directory Changed"
+														return ftpState {curr_directory = return $ cleanPath newDir}
+													False -> do
+														sendData (cmdsocket ftpState) "550 Permission denied"
+														return ftpState 
 							where 
 								newDir = if (Prelude.last directoryName == '/') then (Prelude.init directoryName) else directoryName
 						_ -> do 
@@ -314,9 +322,16 @@ handle_cd directoryName ftpState = do
 												--setCurrentDirectory newDir
 												--return $ ftpState {curr_directory = return newDir}
 												printHere newDir
+												
 												return ()---------------Check kar lena!!!
-												sendData (cmdsocket ftpState) "250 Directory Changed"
-												return ftpState {curr_directory = return newDir}
+												dirr <- servercurr_dir
+												case isPrefixOf (pack dirr) (pack (cleanPath newDir)) of
+													True -> do 
+														sendData (cmdsocket ftpState) "250 Directory Changed"
+														return ftpState {curr_directory = return $ cleanPath newDir}
+													False -> do
+														sendData (cmdsocket ftpState) "550 Permission denied"
+														return ftpState
 							where 
 								newDir = if (Prelude.last directoryName == '/') then y ++ "/" ++ (Prelude.init directoryName) else y ++ "/" ++ directoryName
 			where 
